@@ -24,7 +24,7 @@ echo $Form->Errors();
    <li>
       <?php
          echo $Form->Label('Page', 'Page');
-         //echo '<div class="Info2">', T('Select the location of the pocket.', 'Select the location of the pocket.'), '</div>';
+         echo '<div class="Info2">', T('Select the location of the pocket.', 'Select the location of the pocket.'), '</div>';
          echo $Form->DropDown('Page', $this->Data('Pages'));
       ?>
    </li>
@@ -47,39 +47,49 @@ echo $Form->Errors();
    <li>
       <?php
          echo $Form->Label('Repeat', 'RepeatType');
-
+//
          echo '<div>', $Form->Radio('RepeatType', 'Before', array('Value' => Pocket::REPEAT_BEFORE)), '</div>';
-
+//
          echo '<div>', $Form->Radio('RepeatType', 'After', array('Value' => Pocket::REPEAT_AFTER)), '</div>';
-
+//
          echo '<div>', $Form->Radio('RepeatType', 'Repeat Every', array('Value' => Pocket::REPEAT_EVERY)), '</div>';
          
          // Options for repeat every.
-         echo '<div class="RepeatOptions RepeatEveryOptions">',
+         echo '<div class="RepeatOptions RepeatEveryOptions P">',
             '<div class="Info2">', T('Enter numbers starting at 1.'), '</div>',
-            '<p>',
             $Form->Label('Frequency', 'EveryFrequency', array('Class' => 'SubLabel')),
             $Form->TextBox('EveryFrequency', array('Class' => 'SmallInput')),
-            '</p><p>',
-            $Form->Label('Begin At', 'EveryBegin', array('Class' => 'SubLabel')),
+            ' <br /> '.$Form->Label('Begin At', 'EveryBegin', array('Class' => 'SubLabel')),
             $Form->TextBox('EveryBegin', array('Class' => 'SmallInput')),
-            '</p></div>';
+            '</div>';
 
          echo '<div>', $Form->Radio('RepeatType', 'Given Indexes', array('Value' => Pocket::REPEAT_INDEX)), '</div>';
 
          // Options for repeat indexes.
-         echo '<div class="RepeatOptions RepeatIndexesOptions"',
-            '<div class="Info2">', T('Enter a comma-delimited list of indexes, starting at 1.'), '</div><p>',
+         echo '<div class="RepeatOptions RepeatIndexesOptions P">',
+            '<div class="Info2">', T('Enter a comma-delimited list of indexes, starting at 1.'), '</div>',
             $Form->Label('Indexes', 'Indexes', array('Class' => 'SubLabel')),
             $Form->TextBox('Indexes'),
-            '</p></div>';
+            '</div>';
       ?>
    </li>
    <li>
       <?php
          echo $Form->Label('Conditions', '');
-         echo '<div class="Info2">', T('Limit the pocket to one or more roles or permissions.'), '</div>';
-         $this->ConditionModule->Render();
+         // echo '<div class="Info2">', T('Limit the pocket to one or more roles or permissions.'), '</div>';
+         // $this->ConditionModule->Render();
+         
+         echo '<div class="Info2">', T('Limit the display of this pocket to "mobile only".'), '</div>';
+         echo $Form->CheckBox("MobileOnly", T("Only display on mobile browsers."));
+         
+         echo '<div class="Info2">', T('Limit the display of this pocket for mobile devices.'), '</div>';
+         echo $Form->CheckBox("MobileNever", T("Never display on mobile browsers."));
+         
+         echo '<div class="Info2">', T('Limit the display of this pocket for embedded comments.'), '</div>';
+         echo $Form->CheckBox("EmbeddedNever", T("Don't display for embedded comments."));
+         
+         echo '<div class="Info2">', T("Most pockets shouldn't be displayed in the dashboard."), '</div>';
+         echo $Form->CheckBox("ShowInDashboard", T("Display in dashboard. (not recommended)"));
       ?>
    </li>
    <li>
@@ -100,6 +110,6 @@ echo $Form->Errors();
 </ul>
 <?php
 echo $Form->Button('Save'),
-   '&nbsp;&nbsp;&nbsp;&nbsp;', Anchor(T('Cancel'), '/plugin/pockets', 'Cancel'), ' ',
+   '&nbsp;&nbsp;&nbsp;&nbsp;', Anchor(T('Cancel'), '/settings/pockets', 'Cancel'), ' ',
    $Form->Close();
 ?>

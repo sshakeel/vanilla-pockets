@@ -11,19 +11,18 @@ Contact Vanilla Forums Inc. at support [at] vanillaforums [dot] com
 // Define the plugin:
 $PluginInfo['Pockets'] = array(
    'Name' => 'Pockets',
-   'Description' => 'Allows site admins to add free-form HTML to various places around the application.',
-   'Version' => '1.0.1b',
+   'Description' => 'Administrators may add raw HTML to various places on the site. This plugin is very powerful, but can easily break your site if you make a mistake.',
+   'Version' => '1.1.2',
    'Author' => "Todd Burry",
    'AuthorEmail' => 'todd@vanillaforums.com',
    'AuthorUrl' => 'http://vanillaforums.org/profile/todd',
-   'RequiredApplications' => array('Vanilla' => '2.0.2a'),
+   'RequiredApplications' => array('Vanilla' => '2.1'),
    'RegisterPermissions' => array('Plugins.Pockets.Manage'),
-   'SettingsUrl' => '/dashboard/plugin/pockets',
+   'SettingsUrl' => '/settings/pockets',
    'SettingsPermission' => 'Plugins.Pockets.Manage',
+   'MobileFriendly' => TRUE,
    'HasLocale' => TRUE
 );
-
-require_once dirname(__FILE__).'/class.pocket.php';
 
 class PocketsPlugin extends Gdn_Plugin {
    /** An array of counters for the various locations.
@@ -45,6 +44,10 @@ class PocketsPlugin extends Gdn_Plugin {
     * @var array
     */
    protected $_Pockets = array();
+   protected $_PocketNames = array();
+
+   protected $StateLoaded = FALSE;
+
 
    /** Whether or not to display test items for all pockets. */
    public $TestMode = NULL;
@@ -55,7 +58,7 @@ class PocketsPlugin extends Gdn_Plugin {
 
       if ($this->TestMode && Gdn::Session()->CheckPermission('Plugins.Pockets.Manage')) {
          // Add the css for the test pockets to the page.
-         $Sender->AddCSSFile('plugins/Pockets/design/pockets.css');
+         $Sender->AddCSSFile('pockets.css', 'plugins/Pockets');
       }
    }
 
@@ -65,7 +68,7 @@ class PocketsPlugin extends Gdn_Plugin {
    public function Base_GetAppSettingsMenuItems_Handler(&$Sender) {
       $Menu = $Sender->EventArguments['SideMenu'];
       $Menu->AddItem('Appearance', T('Appearance'));
-      $Menu->AddLink('Appearance', T('Pockets'), 'plugin/pockets', 'Plugins.Pockets.Manage');
+      $Menu->AddLink('Appearance', T('Pockets'), 'settings/pockets', 'Plugins.Pockets.Manage');
    }
 
    public function Base_BeforeRenderAsset_Handler($Sender) {
@@ -107,10 +110,10 @@ class PocketsPlugin extends Gdn_Plugin {
     *
     * @param Gdn_Controller $Sender.
     */
-   public function PluginController_Pockets_Create(&$Sender, $Args = array()) {
+   public function SettingsController_Pockets_Create($Sender, $Args = array()) {
       $Sender->Permission('Plugins.Pockets.Manage');
-      $Sender->AddSideMenu('plugin/pockets');
-      $Sender->AddJsFile('plugins/Pockets/pockets.js');
+      $Sender->AddSideMenu('settings/pockets');
+      $Sender->AddJsFile('pockets.js', 'plugins/Pockets');
 
       $Page = GetValue(0, $Args);
       switch(strtolower($Page)) {
@@ -172,7 +175,7 @@ class PocketsPlugin extends Gdn_Plugin {
 //      }
 
       $Sender->Form = $Form;
-      $Sender->Render(dirname(__FILE__).'/views/index.php');
+      $Sender->Render('Index', '', 'plugins/Pockets');
    }
 
    protected function _Add($Sender) {
@@ -225,7 +228,7 @@ class PocketsPlugin extends Gdn_Plugin {
          $Saved = $Form->Save();
          if ($Saved) {
             $Sender->StatusMessage = T('Your changes have been saved.');
-            $Sender->RedirectUrl = Url('plugin/pockets');
+            $Sender->RedirectUrl = Url('settings/pockets');
          }
       } else {
          if ($PocketID !== FALSE) {
@@ -253,8 +256,8 @@ class PocketsPlugin extends Gdn_Plugin {
       $Sender->SetData('Locations', $this->Locations);
       $Sender->SetData('LocationsArray', $this->GetLocationsArray());
       $Sender->SetData('Pages', array('' => '('.T('All').')', 'activity' => 'activity', 'comments' => 'comments', 'dashboard' => 'dashboard', 'discussions' => 'discussions', 'inbox' => 'inbox', 'profile' => 'profile'));
-      
-      return $Sender->Render(dirname(__FILE__).'/views/addedit.php');
+
+      return $Sender->Render('AddEdit', '', 'plugins/Pockets');
    }
 
    protected function _Edit($Sender, $PocketID) {
@@ -265,17 +268,17 @@ class PocketsPlugin extends Gdn_Plugin {
 
    protected function _Delete($Sender, $PocketID) {
       $Sender->SetData('Title', sprintf(T('Delete %s'), T('Pocket')));
-      
+
       $Form = new Gdn_Form();
 
       if ($Form->AuthenticatedPostBack()) {
          Gdn::SQL()->Delete('Pocket', array('PocketID' => $PocketID));
          $Sender->StatusMessage = sprintf(T('The %s has been deleted.'), strtolower(T('Pocket')));
-         $Sender->RedirectUrl = Url('plugin/pockets');
+         $Sender->RedirectUrl = Url('settings/pockets');
       }
 
       $Sender->Form = $Form;
-      $Sender->Render(dirname(__FILE__).'/views/delete.php');
+      $Sender->Render('Delete', '', 'plugins/Pockets');
       return TRUE;
    }
 
@@ -286,7 +289,9 @@ class PocketsPlugin extends Gdn_Plugin {
    public function AddPocket($Pocket) {
       if (!isset($this->_Pockets[$Pocket->Location]))
          $this->_Pockets[$Pocket->Location] = array();
+
       $this->_Pockets[$Pocket->Location][] = $Pocket;
+      $this->_PocketNames[$Pocket->Name][] = $Pocket;
    }
 
    public function GetLocationsArray() {
@@ -297,34 +302,32 @@ class PocketsPlugin extends Gdn_Plugin {
       return $Result;
    }
 
-   protected function _LoadState() {
-      $PM = Gdn::PluginManager();
-      if (isset($PM->_PocketsPluginState)) {
-         $State = $PM->_PocketsPluginState;
-         $this->_Pockets = (array)GetValue('Pockets', $State, array());
-         $this->_Counters = (array)GetValue('Counters', $State, array());
+   public function GetPockets($Name) {
+      $this->_LoadState();
+      return GetValue($Name, $this->_PocketNames, array());
+   }
 
-      } else {
-         // Grab all of the pockets from the database.
-         $Pockets = Gdn::SQL()->Get('Pocket', 'Location, Sort, Name')->ResultArray();
-         foreach ($Pockets as $Row) {
-            $Pocket = new Pocket();
-            $Pocket->Load($Row);
-            $this->AddPocket($Pocket);
-         }
+   protected function _LoadState($Force = FALSE) {
+      if (!$Force && $this->StateLoaded)
+         return;
 
-//         $Pocket = new Pocket('BetweenComment');
-//         $Pocket->Body = $this->TestHtml('<li>Between Comment</li>');
-//         $Pocket->Repeat(Pocket::REPEAT_EVERY, 3);
-//         $this->AddPocket($Pocket);
-
+      $Pockets = Gdn::SQL()->Get('Pocket', 'Location, Sort, Name')->ResultArray();
+      foreach ($Pockets as $Row) {
+         $Pocket = new Pocket();
+         $Pocket->Load($Row);
+         $this->AddPocket($Pocket);
       }
+
+      $this->StateLoaded = TRUE;
    }
 
    public function ProcessPockets($Sender, $Location, $CountHint = NULL) {
+      if (Gdn::Controller()->Data('_NoMessages'))
+         return;
+
       // Since plugins can't currently maintain their state we have to stash it in the Gdn object.
       $this->_LoadState();
-      
+
       // Build up the data for filtering.
       $Data = array();
       $Data['Request'] = Gdn::Request();
@@ -375,13 +378,49 @@ class PocketsPlugin extends Gdn_Plugin {
       $this->_SaveState();
    }
 
+   public static function PocketString($Name, $Data = NULL) {
+      $Inst = Gdn::PluginManager()->GetPluginInstance('PocketsPlugin', Gdn_PluginManager::ACCESS_CLASSNAME);
+      $Pockets = $Inst->GetPockets($Name);
+
+      if (GetValue('random', $Data)) {
+         $Pockets = array(array_rand($Pockets));
+      }
+
+      $Result = '';
+      foreach ($Pockets as $Pocket) {
+         $Result .= $Pocket->ToString();
+      }
+
+      if (is_array($Data)) {
+         $Data = array_change_key_case($Data);
+
+         self::PocketStringCb($Data, TRUE);
+         $Result = preg_replace_callback('`{{(\w+)}}`', array('PocketsPlugin', 'PocketStringCb'), $Result);
+      }
+
+      return $Result;
+   }
+
+   public static function PocketStringCb($Match = NULL, $SetArgs = FALSE) {
+      static $Data;
+      if ($SetArgs) {
+         $Data = $Match;
+      }
+
+      $Key = strtolower($Match[1]);
+      if (isset($Data[$Key]))
+         return $Data[$Key];
+      else
+         return '';
+   }
+
    protected function _SaveState() {
-      $State = array(
-         'Counters' => $this->_Counters,
-         'Pockets' => $this->_Pockets
-      );
-      $PM = Gdn::PluginManager();
-      $PM->_PocketsPluginState = $State;
+//      $State = array(
+//         'Counters' => $this->_Counters,
+//         'Pockets' => $this->_Pockets
+//      );
+//      $PM = Gdn::PluginManager();
+//      $PM->_PocketsPluginState = $State;
    }
 
    public function Setup() {
@@ -389,6 +428,8 @@ class PocketsPlugin extends Gdn_Plugin {
    }
 
    public function Structure($Explicit = FALSE, $Drop = FALSE) {
+   	  // It seems plugins need to be disabled and enabled for this to happen.
+   	  // Might want to warn users that upgrade.
       $St = Gdn::Structure();
       $St->Table('Pocket')
          ->PrimaryKey('PocketID')
@@ -402,6 +443,10 @@ class PocketsPlugin extends Gdn_Plugin {
          ->Column('Condition', 'varchar(500)', NULL)
          ->Column('Disabled', 'smallint', '0') // set to a constant in class Pocket
          ->Column('Attributes', 'text', NULL)
+         ->Column('MobileOnly', 'tinyint', '0')
+         ->Column('MobileNever', 'tinyint', '0')
+         ->Column('EmbeddedNever', 'tinyint', '0')
+         ->Column('ShowInDashboard', 'tinyint', '0')
          ->Set($Explicit, $Drop);
    }
 
